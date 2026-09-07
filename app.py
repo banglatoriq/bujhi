@@ -12,6 +12,7 @@ import streamlit as st
 
 import scraper as sc
 import bundle
+import targets
 
 DATA_DIR = "data"
 
@@ -54,6 +55,40 @@ def save_raw(exam, slug, questions):
 
 # ---------------- হেডার ----------------
 st.title("📚 বুঝি — ডেটা কালেকশন")
+
+with st.expander("🎯 আমার টার্গেট পরীক্ষা (BCS · ব্যাংক · NTRCA · প্রাথমিক)",
+                 expanded=True):
+    tcol1, tcol2 = st.columns([1, 3])
+    group = tcol1.radio("ক্যাটাগরি", list(targets.TARGETS.keys()))
+    items = targets.TARGETS[group]
+    idx = tcol2.selectbox("পরীক্ষা", range(len(items)),
+                          format_func=lambda i: items[i][0])
+    if tcol2.button("এই পরীক্ষাটা বাছো", use_container_width=True):
+        st.session_state.exam = items[idx][1]
+        st.session_state.subjects = []
+        st.rerun()
+    st.caption(f"slug: `{items[idx][1]}`")
+
+with st.expander("🔎 অন্য পরীক্ষা খুঁজি"):
+    if st.button("পরীক্ষার তালিকা আনো"):
+        with st.spinner("হোমপেজ থেকে আনা হচ্ছে..."):
+            try:
+                st.session_state["exam_list"] = sc.get_exams()
+            except Exception as e:
+                st.error(f"আনা গেল না: {e}")
+
+    if st.session_state.get("exam_list"):
+        edf = pd.DataFrame(st.session_state["exam_list"])
+        kind = st.radio("ধরন", ["চাকরি", "ভর্তি", "সব"],
+                        horizontal=True, index=0)
+        if kind != "সব":
+            edf = edf[edf["type"] == kind]
+        q = st.text_input("নাম দিয়ে খোঁজো", placeholder="যেমন: শিক্ষক")
+        if q:
+            edf = edf[edf["name"].str.contains(q, case=False, na=False)]
+        st.caption(f"{len(edf)}টি পরীক্ষা — slug কলাম থেকে কপি করে নিচে বসাও")
+        st.dataframe(edf[["name", "slug", "type"]],
+                     use_container_width=True, hide_index=True)
 
 c1, c2, c3 = st.columns([2, 2, 1])
 st.session_state.exam = c1.text_input("পরীক্ষা (exam slug)", st.session_state.exam)
@@ -128,7 +163,9 @@ with tab_dl:
                 status.write(f"মোট {total_pages} পেজ · বাকি {len(todo)} · "
                              f"আনুমানিক {mins:.1f} মিনিট")
 
+                empty_streak = 0
                 for i, page in enumerate(todo, 1):
+                    before = len(questions)
                     try:
                         soup = sc.fetch(sc.build_url(exam, sub["slug"], page),
                                         delay=delay)
@@ -139,6 +176,16 @@ with tab_dl:
                         done_pages.add(page)
                     except Exception as e:
                         st.warning(f"পেজ {page} বাদ: {e}")
+
+                    # নতুন কিছু না এলে গোনা — টানা ৩ পেজ খালি মানে পেজিনেশন কাজ করছে না
+                    empty_streak = 0 if len(questions) > before else empty_streak + 1
+                    if empty_streak >= 3:
+                        st.error(
+                            "টানা ৩টি পেজ থেকে একটাও নতুন প্রশ্ন আসেনি — "
+                            "সাইট `?page=` প্যারামিটার উপেক্ষা করছে, পেজিনেশন "
+                            "JavaScript/AJAX দিয়ে হয়। থামানো হলো যাতে সময় নষ্ট না হয়। "
+                            "আসল endpoint বের করতে হবে (README দেখো)।")
+                        break
 
                     if i % 5 == 0 or i == len(todo):
                         save_raw(exam, sub["slug"], questions)
