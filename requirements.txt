@@ -1,0 +1,6 @@
+streamlit>=1.30
+requests>=2.31
+beautifulsoup4>=4.12
+pandas>=2.0
+lxml>=5.0
+bijoy2unicode
